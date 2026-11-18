@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Jobbing Book</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<style>
+:root{--brand:#0a3d91;--brand-light:#0ea5e9;--gold:#f59e0b;--gold-dark:#d97706;--bg:#eef4ff;--card:#ffffff;--text:#1e293b}
+body{font-family:'Segoe UI',Arial,sans-serif;margin:0;background:linear-gradient(135deg,#eef4ff 0%,#fef9ee 100%);color:var(--text);min-height:100vh}
+header{background:linear-gradient(90deg,#072863 0%,#0a4abf 55%,#0284c7 100%);color:#fff;padding:14px 28px;display:flex;align-items:center;gap:14px;box-shadow:0 4px 14px rgba(10,61,145,.25);border-bottom:4px solid var(--gold)}
+header img{height:48px;width:48px;object-fit:contain;background:#fff;border-radius:50%;padding:3px;box-shadow:0 2px 8px rgba(0,0,0,.2)}
+header .title{font-size:22px;font-weight:800;letter-spacing:.4px}
+header .sub{font-size:12px;color:#fde68a;font-weight:600;text-transform:uppercase;letter-spacing:1px}
+main{padding:20px 28px;max-width:1400px;margin:0 auto}
+#drop{border:3px dashed var(--brand-light);background:var(--card);border-radius:14px;padding:22px;text-align:center;margin-bottom:16px;box-shadow:0 4px 16px rgba(14,165,233,.08);transition:.2s}
+#drop.over{background:#e0f2fe;border-color:var(--gold)}
+textarea{width:100%;height:80px;box-sizing:border-box;margin-top:10px;border:1.5px solid #cbd5e1;border-radius:8px;padding:8px;font-family:inherit}
+textarea:focus{outline:none;border-color:var(--brand-light);box-shadow:0 0 0 3px rgba(14,165,233,.15)}
+button{background:linear-gradient(135deg,#0a4abf,#0284c7);color:#fff;border:0;padding:9px 18px;border-radius:8px;cursor:pointer;margin:4px 6px 4px 0;font-weight:600;box-shadow:0 2px 6px rgba(2,132,199,.3);transition:.15s}
+button:hover{transform:translateY(-1px);box-shadow:0 4px 10px rgba(2,132,199,.4)}
+button.gold{background:linear-gradient(135deg,#f59e0b,#d97706);box-shadow:0 2px 6px rgba(217,119,6,.3)}
+button.red{background:linear-gradient(135deg,#dc2626,#b91c1c);box-shadow:0 2px 6px rgba(220,38,38,.3)}
+table{border-collapse:collapse;width:100%;background:var(--card);margin-bottom:22px;font-size:14px;border-radius:10px;overflow:hidden;box-shadow:0 4px 14px rgba(15,23,42,.06)}
+th,td{border:1px solid #cbd5e1;padding:7px 8px}
+th{background:linear-gradient(180deg,#0a3d91,#0d47a1);color:#fff;font-weight:600;text-align:left}
+tr:nth-child(even) td{background:#f8fafc}
+td[contenteditable]:focus{background:#fef3c7;outline:2px solid var(--gold)}
+h3{margin:18px 0 8px;color:var(--brand);font-size:17px;border-left:5px solid var(--gold);padding-left:10px}
+#status{color:#0369a1;font-weight:700;margin:8px 0}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:8px}
+input[type=date],input:not([type=file]){border:1.5px solid #cbd5e1;border-radius:6px;padding:5px 8px}
+</style></head><body>
+<header><img src="/regency-logo.png" alt="Regency Logo"><div><div class="title">REGENCY JOBBING BOOK</div><div class="sub">Operations Mandate Capture &amp; Excel Export</div></div></header>
+<main>
+<div id="drop"><b>Paste screenshot here (Ctrl+V)</b>, drag &amp; drop an image, or
+ <input type="file" id="file" accept="image/*,application/pdf" multiple> — or paste the email text below.
+<textarea id="txt" placeholder="Or paste mandate email text here, then click Interpret"></textarea>
+<div class="row"><button onclick="interpret(txt.value)">Interpret text</button>
+<label>Send to <select id="targetTable"><option value="auto">Auto (Purchase / Sale)</option><option value="P">Purchases Mandates</option><option value="S">Sales Mandates</option></select></label>
+<label>Mandate date <input type="date" id="date"></label>
+<label>A/C Officer <input id="officer" placeholder="default officer"></label>
+<label>In-house <input id="inhouse" size="8" placeholder="default"></label></div>
+<div id="status"></div></div>
+
+<div class="row"><button class="gold" onclick="exportXlsx()">⬇ Export to Excel</button>
+<button onclick="addTable()">+ Add Table</button>
+<button onclick="addColumn()">+ Add Column</button>
+<button class="red" onclick="if(confirm('Clear all rows?')){data={P:[],S:[],custom:[],extraCols:data.extraCols||[]};save();render()}">Clear all</button></div>
+<div class="row" style="justify-content:space-between"><h3 id="tP"></h3><button onclick="addBlankRow(data.P)">+ Add Row</button></div><table id="P"></table>
+<div class="row" style="justify-content:space-between"><h3 id="tS"></h3><button onclick="addBlankRow(data.S)">+ Add Row</button></div><table id="S"></table>
+<div id="customTables"></div>
+<p style="color:#666">Clients are matched by the sender name. Add CSCS numbers to the Clients list once (below) and they fill automatically. Click any cell to correct it. OCR runs in your browser.</p>
+<h3>Client CSCS list</h3>
+<textarea id="clients" placeholder="One per line:  NAME, CSCS NUMBER" onchange="saveClients()"></textarea>
+</main>
+<script>
+const COLS=["S/N","NAME","CSCS NUMBER","STOCKS","UNITS/WORTH","PRICE LIMIT","AMOUNT","IN-HOUSE","A/C OFFICER"];
+const KEYS=["","name","cscs","stock","units","price","amount","inhouse","officer"];
+let data=JSON.parse(localStorage.jb||'{"P":[],"S":[],"custom":[],"extraCols":[]}');
+if(!data.custom)data.custom=[];
+if(!data.extraCols)data.extraCols=[];
+const $=id=>document.getElementById(id);
+$('date').value=new Date().toISOString().slice(0,10);
+$('clients').value=localStorage.clients||'';
+$('officer').value=localStorage.officer||'';
+$('officer').onchange=()=>localStorage.officer=$('officer').value;
+// Shared storage on the office server
+async function save(){try{await fetch('/api/data',{method:'PUT',body:JSON.stringify({P:data.P,S:data.S,custom:data.custom,extraCols:data.extraCols,clients:$('clients').value})})}catch(e){}}
+function saveClients(){save()}
+async function pull(){
+ if(document.activeElement&&document.activeElement.isContentEditable)return;
+ if(document.activeElement===$('clients'))return;
+ try{const d=await(await fetch('/api/data')).json();
+  if(JSON.stringify([d.P,d.S,d.custom||[],d.extraCols||[]])!==JSON.stringify([data.P,data.S,data.custom,data.extraCols])){data={P:d.P,S:d.S,custom:d.custom||[],extraCols:d.extraCols||[]};render()}
+  if(document.activeElement!==$('clients'))$('clients').value=d.clients||''}catch(e){}}
+setInterval(pull,3000);pull();
+function dmy(){const d=$('date').value.split('-');return d[2]+'-'+d[1]+'-'+d[0]}
+
+const ONES={zero:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19,twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90};
+const SCALE={hundred:100,thousand:1e3,million:1e6,billion:1e9};
+function wordsToNum(s){let tot=0,cur=0,found=false;
+ for(const w of s.toLowerCase().replace(/-/g,' ').split(/\s+/)){
+  if(w in ONES){cur+=ONES[w];found=true}
+  else if(w==='hundred'){cur=(cur||1)*100;found=true}
+  else if(w in SCALE){tot+=(cur||1)*SCALE[w];cur=0;found=true}
+  else if(w==='and'){}
+  else if(found)break}
+ return found?tot+cur:null}
+
+function parse(t){
+ t=t.replace(/\r/g,'');
+ const g=r=>(t.match(r)||[])[1];
+ let name=(g(/From\s*[:\-]?\s*([^\n]+?)(?:\s*(?:<|To\b|\n|$))/i)||'').trim();
+ const body=t.split(/Plain text|Headers\s*Plain|Summary/i).pop();
+ const sell=/\b(sell|sale|dispose|offload)\b/i.test(body);
+ let stock=(body.match(/(?:shares?|units?|stocks?)\s+(?:of|in)\s+([A-Za-z0-9 &.\-]+?)(?=\s*(?:@|at\b|price|limit|best|regards|thanks|thank|kind|yours|\n|\.|,|$))/i)||[])[1]||'';
+ stock=stock.trim().toUpperCase();
+ // units: prefer digits in brackets, then plain digits, then words
+ let units=null;
+ let m=body.match(/\(\s*([\d,]+)\s*\)/); if(m)units=+m[1].replace(/,/g,'');
+ if(units==null){m=body.match(/([\d,]{3,})\s*(?:units|shares)/i);if(m)units=+m[1].replace(/,/g,'')}
+ if(units==null)units=wordsToNum(body);
+ let worth=null;
+ m=body.match(/(?:N|₦|NGN)\s?([\d,\.]+\s?(?:m|k|million|thousand)?)\b/i);
+ let uw=units;
+ if(m&&!/units|shares/i.test(body.slice(0,m.index+40).slice(-20))){worth=m[0]}
+ let price=(body.match(/(?:@|limit(?:\s*price)?|price(?:\s*limit)?|at)\s*(?:of|:)?\s*(?:N|₦)?\s*([\d]+(?:\.\d+)?)\b(?!\s*(?:units|shares))/i)||[])[1]||'';
+ const cscs=(g(/CSCS[^\d\w]*([A-Z0-9\-]{6,})/i)||'');
+ return{name,stock,units:worth||uw,price,cscs,sell}}
+
+function lookupCscs(name){
+ const n=name.toLowerCase();
+ for(const l of $('clients').value.split('\n')){const p=l.split(',');
+  if(p.length>1&&p[0].trim().toLowerCase()===n)return p[1].trim()}return''}
+
+function interpret(t){
+ if(!t.trim()){$('status').textContent='Nothing to interpret.';return}
+ const r=parse(t);
+ const tgt=$('targetTable').value;
+ let list,label;
+ if(tgt==='P'){list=data.P;label='PURCHASE'}
+ else if(tgt==='S'){list=data.S;label='SALES'}
+ else if(tgt.startsWith('C')){const ct=data.custom[+tgt.slice(1)];if(ct){list=ct.rows;label=ct.name}}
+ if(!list){list=r.sell?data.S:data.P;label=r.sell?'SALES':'PURCHASE'}
+ const row={name:r.name,cscs:r.cscs||lookupCscs(r.name),stock:r.stock,units:r.units??'',price:r.price,amount:'',inhouse:$('inhouse').value,officer:$('officer').value};
+ list.push(row);save();render();
+ $('status').textContent='Added to '+label+' mandates: '+r.name+' – '+r.stock+' – '+row.units+'. Please check the row.';
+ $('txt').value=''}
+
+async function ocr(blob){
+ $('status').textContent='Reading screenshot…';
+ try{const {data:{text}}=await Tesseract.recognize(blob,'eng');interpret(text)}
+ catch(e){$('status').textContent='OCR failed (internet needed to load OCR engine): '+e.message}}
+document.addEventListener('paste',e=>{for(const it of e.clipboardData.items)if(it.type.startsWith('image')){ocr(it.getAsFile());e.preventDefault();return}});
+async function pdfRead(file){
+ $('status').textContent='Reading PDF…';
+ try{
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
+  let text='';
+  for(let i=1;i<=pdf.numPages;i++){
+   const pg=await pdf.getPage(i);
+   let t=(await pg.getTextContent()).items.map(x=>x.str+(x.hasEOL?'\n':' ')).join('');
+   if(t.trim().length<20){ // scanned page -> OCR
+    const vp=pg.getViewport({scale:2}),cv=document.createElement('canvas');cv.width=vp.width;cv.height=vp.height;
+    await pg.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
+    t=(await Tesseract.recognize(cv,'eng')).data.text}
+   text+=t+'\n\n'}
+  // one PDF may hold several mandates: split on "PURCHASE MANDATE"/"SALE MANDATE" headings or "From" blocks
+  const parts=text.split(/(?=\bFrom\s*:?\s*[A-Z][^\n]*\n?\s*To\b)/i).filter(p=>p.trim().length>10);
+  (parts.length>1?parts:[text]).forEach(interpret)
+ }catch(e){$('status').textContent='PDF failed: '+e.message}}
+function handleFile(f){f.type==='application/pdf'||/\.pdf$/i.test(f.name)?pdfRead(f):ocr(f)}
+$('file').onchange=e=>[...e.target.files].forEach(handleFile);
+const d=$('drop');
+d.ondragover=e=>{e.preventDefault();d.classList.add('over')};d.ondragleave=()=>d.classList.remove('over');
+d.ondrop=e=>{e.preventDefault();d.classList.remove('over');[...e.dataTransfer.files].forEach(handleFile)};
+
+function addTable(){
+ const name=prompt('Enter new table name (e.g. CROSS DEALS, BOND MANDATES):');
+ if(!name||!name.trim())return;
+ data.custom.push({name:name.trim().toUpperCase(),rows:[]});
+ save();render();
+}
+function addBlankRow(list){
+ list.push({name:'',cscs:'',stock:'',units:'',price:'',amount:'',inhouse:$('inhouse').value,officer:$('officer').value});
+ save();render();
+}
+function addColumn(){
+ const name=prompt('Enter new column name (e.g. REMARKS, SETTLEMENT DATE):');
+ if(!name||!name.trim())return;
+ const col=name.trim().toUpperCase();
+ if(!data.extraCols.includes(col)){data.extraCols.push(col);save();render()}
+}
+function fillTable(tb,rows){
+ const ex=data.extraCols||[];
+ tb.innerHTML='<tr>'+COLS.map(c=>'<th>'+c+'</th>').join('')+ex.map((c,ci)=>'<th>'+c+' <span style="cursor:pointer;color:#fde68a" title="Remove column" onclick="if(confirm(\'Remove column '+c+'?\')){data.extraCols.splice('+ci+',1);save();render()}">✕</span></th>').join('')+'<th></th></tr>';
+ rows.forEach((r,i)=>{const tr=tb.insertRow();
+  tr.insertCell().textContent=i+1;
+  KEYS.slice(1).forEach(key=>{const c=tr.insertCell();c.contentEditable=true;c.textContent=r[key]??'';
+   c.oninput=()=>{r[key]=c.textContent;save()}});
+  ex.forEach(col=>{const k='ex_'+col;const c=tr.insertCell();c.contentEditable=true;c.textContent=r[k]??'';
+   c.oninput=()=>{r[k]=c.textContent;save()}});
+  const x=tr.insertCell();x.innerHTML='✕';x.style.cursor='pointer';x.onclick=()=>{rows.splice(i,1);save();render()}});
+}
+function render(){
+ $('tP').textContent='PURCHASES MANDATES '+dmy();$('tS').textContent='SALES MANDATES '+dmy();
+ fillTable($('P'),data.P);
+ fillTable($('S'),data.S);
+ const sel=$('targetTable'),prev=sel.value;
+ sel.innerHTML='<option value="auto">Auto (Purchase / Sale)</option><option value="P">Purchases Mandates</option><option value="S">Sales Mandates</option>';
+ const wrap=$('customTables');wrap.innerHTML='';
+ data.custom.forEach((ct,idx)=>{
+  const opt=document.createElement('option');opt.value='C'+idx;opt.textContent=ct.name;sel.appendChild(opt);
+  const hdr=document.createElement('div');hdr.className='row';hdr.style.justifyContent='space-between';
+  const h3=document.createElement('h3');h3.textContent=ct.name+' '+dmy();
+  const btns=document.createElement('div');
+  const bAdd=document.createElement('button');bAdd.textContent='+ Add Row';bAdd.onclick=()=>addBlankRow(ct.rows);
+  const bDel=document.createElement('button');bDel.className='red';bDel.textContent='Delete Table';
+  bDel.onclick=()=>{if(confirm('Delete table "'+ct.name+'"?')){data.custom.splice(idx,1);save();render()}};
+  btns.append(bAdd,bDel);hdr.append(h3,btns);
+  const tb=document.createElement('table');fillTable(tb,ct.rows);
+  wrap.append(hdr,tb);
+ });
+ if([...sel.options].some(o=>o.value===prev))sel.value=prev;
+}
+$('date').onchange=render;
+
+function exportXlsx(){
+ const wb=XLSX.utils.book_new();
+ const sheets=[
+  ['PURCHASES MANDATES ','PURCHASES',data.P],
+  ['SALES MANDATES ','SALES',data.S],
+  ...data.custom.map((ct,i)=>[ct.name+' ',ct.name.slice(0,28)||('TABLE_'+(i+1)),ct.rows])
+ ];
+ for(const [title,sh,list] of sheets){
+  const ex=data.extraCols||[];
+  const rows=[['',title+dmy()],[...COLS,...ex]];
+  list.forEach((r,i)=>rows.push([i+1,...KEYS.slice(1).map(x=>{const v=r[x];return v!==''&&!isNaN(+String(v).replace(/,/g,''))&&x!=='cscs'?+String(v).replace(/,/g,''):v}),...ex.map(c=>r['ex_'+c]??'')]));
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=[6,40,18,30,16,14,18,12,16,...ex.map(()=>18)].map(w=>({wch:w}));
+  XLSX.utils.book_append_sheet(wb,ws,sh)}
+ XLSX.writeFile(wb,'JOBBING BOOK '+dmy()+'.xlsx')}
+render();
+</script></body></html>
