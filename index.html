@@ -46,7 +46,7 @@ input[type=date],input:not([type=file]){border:1.5px solid #cbd5e1;border-radius
 <label>In-house <input id="inhouse" size="8" placeholder="default"></label></div>
 <div id="status"></div></div>
 
-<div class="row"><button class="gold" onclick="exportXlsx()">⬇ Export to Excel</button>
+<div class="row"><button class="gold" style="font-weight:800;font-size:15px" onclick="exportXlsx()">⬇ Export to Excel</button>
 <button onclick="addTable()">+ Add Table</button>
 <button onclick="addColumn()">+ Add Column</button>
 <button class="red" onclick="if(confirm('Clear all rows?')){data={P:[],S:[],custom:[],extraCols:data.extraCols||[]};save();render()}">Clear all</button></div>
